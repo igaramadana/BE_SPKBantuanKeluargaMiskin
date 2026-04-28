@@ -6,6 +6,7 @@ from app.modules.health.routes import router as health_router
 from app.modules.kriteria.routes import router as kriteria_router
 from app.modules.keluarga.routes import router as keluarga_router
 from app.modules.ahp.routes import router as ahp_router
+from app.modules.saw.routes import router as saw_router
 
 app = FastAPI(
     title="API SPK Bantuan Keluarga Miskin",
@@ -24,3 +25,4 @@ app.include_router(health_router, prefix="/api")
 app.include_router(kriteria_router, prefix="/api/kriteria", tags=["Kriteria"])
 app.include_router(keluarga_router, prefix="/api/keluarga", tags=["Keluarga"])
 app.include_router(ahp_router, prefix="/api/ahp", tags=["AHP"])
+app.include_router(saw_router, prefix="/api/saw", tags=["SAW"])
