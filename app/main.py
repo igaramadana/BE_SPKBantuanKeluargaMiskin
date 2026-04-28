@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.modules.health.routes import router as health_router
+from app.modules.kriteria.routes import router as kriteria_router
 
 app = FastAPI(
     title="API SPK Bantuan Keluarga Miskin",
