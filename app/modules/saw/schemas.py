@@ -1,59 +1,43 @@
-from typing import List, Dict, Any
+from pydantic import BaseModel, Field
+from typing import Dict, List, Optional
 
 
-def normalin_saw(alternatif: List[Dict[str, Any]], kriteria: List[Dict[str, Any]]):
-    for item_kriteria in kriteria:
-        kode = item_kriteria["kode"]
-        jenis = item_kriteria["jenis"]
-
-        nilai_list = [
-            float(item["nilai"][kode])
-            for item in alternatif
-            if kode in item["nilai"] and item["nilai"][kode] is not None
-        ]
-
-        nilai_max = max(nilai_list)
-        nilai_min = min(nilai_list)
-
-        for item in alternatif:
-            if "normalisasi" not in item:
-                item["normalisasi"] = {}
-
-            nilai_awal = float(item["nilai"][kode])
-
-            if jenis == "benefit":
-                nilai_normal = nilai_awal / nilai_max if nilai_max else 0
-            elif jenis == "cost":
-                nilai_normal = nilai_min / nilai_awal if nilai_awal else 0
-            else:
-                raise ValueError("Jenis kriteria harus benefit atau cost.")
-
-            item["normalisasi"][kode] = nilai_normal
-
-    return alternatif
+class SawAlternative(BaseModel):
+    keluarga_id: str
+    nama_kepala_keluarga: str
+    nilai: Dict[str, float]
 
 
-def gas_hitung_saw(alternatif: List[Dict[str, Any]], kriteria: List[Dict[str, Any]]):
-    data_normal = normalin_saw(alternatif, kriteria)
+class SawCriterion(BaseModel):
+    kode: str
+    jenis: str
+    bobot_ahp: float
 
-    for item in data_normal:
-        total = 0
-        item["nilai_terbobot"] = {}
 
-        for item_kriteria in kriteria:
-            kode = item_kriteria["kode"]
-            bobot = float(item_kriteria["bobot_ahp"])
-            nilai_normal = item["normalisasi"][kode]
-            nilai_terbobot = nilai_normal * bobot
+class SawCalculateRequest(BaseModel):
+    alternatives: List[SawAlternative]
+    criteria: List[SawCriterion]
+    mode: str = Field(..., description="threshold atau kuota")
+    threshold: Optional[float] = None
+    quota: Optional[int] = None
+    reserve_quota: Optional[int] = 0
 
-            item["nilai_terbobot"][kode] = nilai_terbobot
-            total += nilai_terbobot
 
-        item["total_nilai"] = total
+class SawFromDatabaseRequest(BaseModel):
+    nama_perhitungan: str = "Perhitungan AHP-SAW"
+    mode: str = Field(..., description="threshold atau kuota")
+    threshold: Optional[float] = None
+    quota: Optional[int] = None
+    reserve_quota: Optional[int] = 0
+    dihitung_oleh: Optional[str] = None
 
-    hasil_rank = sorted(data_normal, key=lambda x: x["total_nilai"], reverse=True)
 
-    for index, item in enumerate(hasil_rank, start=1):
-        item["ranking"] = index
+class MappingPenilaianItem(BaseModel):
+    keluarga_id: str
+    kriteria_id: str
+    sub_kriteria_id: Optional[str] = None
+    nilai_awal: float
 
-    return hasil_rank
+
+class SimpanPenilaianRequest(BaseModel):
+    data: List[MappingPenilaianItem]
