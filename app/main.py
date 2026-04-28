@@ -19,3 +19,4 @@ app.add_middleware(
 )
 
 app.include_router(health_router, prefix="/api")
+app.include_router(kriteria_router, prefix="/api/kriteria", tags=["Kriteria"])
