@@ -1,3 +1,5 @@
+import uuid
+
 from app.db.connection import ambil_koneksi
 
 
@@ -23,6 +25,38 @@ def ambil_semua_kriteria():
     )
 
     rows = cur.fetchall()
+
+    if not rows:
+        cur.close()
+        conn.close()
+        return rows
+
+    kriteria_ids = [row["id"] for row in rows]
+
+    cur.execute(
+        """
+        SELECT
+            id,
+            kriteria_id,
+            nama,
+            nilai,
+            created_at,
+            updated_at
+        FROM sub_kriteria
+        WHERE kriteria_id = ANY(%s::uuid[])
+        ORDER BY nilai ASC, created_at ASC
+        """,
+        (kriteria_ids,),
+    )
+
+    sub_rows = cur.fetchall()
+    sub_map = {}
+
+    for sub in sub_rows:
+        sub_map.setdefault(sub["kriteria_id"], []).append(sub)
+
+    for row in rows:
+        row["sub_kriteria"] = sub_map.get(row["id"], [])
 
     cur.close()
     conn.close()
@@ -53,6 +87,29 @@ def ambil_kriteria_by_id(kriteria_id: str):
     )
 
     row = cur.fetchone()
+
+    if not row:
+        cur.close()
+        conn.close()
+        return row
+
+    cur.execute(
+        """
+        SELECT
+            id,
+            kriteria_id,
+            nama,
+            nilai,
+            created_at,
+            updated_at
+        FROM sub_kriteria
+        WHERE kriteria_id = %s
+        ORDER BY nilai ASC, created_at ASC
+        """,
+        (kriteria_id,),
+    )
+
+    row["sub_kriteria"] = cur.fetchall()
 
     cur.close()
     conn.close()
@@ -94,17 +151,22 @@ def bikin_kriteria(data):
     conn = ambil_koneksi()
     cur = conn.cursor()
 
+    kriteria_id = str(uuid.uuid4())
+
     try:
         cur.execute(
             """
             INSERT INTO kriteria (
+                id,
                 kode,
                 nama,
                 jenis,
                 aktif,
-                urutan
+                urutan,
+                created_at,
+                updated_at
             )
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
             RETURNING
                 id,
                 kode,
@@ -117,6 +179,7 @@ def bikin_kriteria(data):
                 updated_at
             """,
             (
+                kriteria_id,
                 data.kode,
                 data.nama,
                 data.jenis,
