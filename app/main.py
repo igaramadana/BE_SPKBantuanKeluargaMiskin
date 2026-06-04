@@ -9,20 +9,41 @@ from app.modules.ahp.routes import router as ahp_router
 from app.modules.saw.routes import router as saw_router
 from app.modules.import_data.routes import router as import_data_router
 
+
 app = FastAPI(
     title="API SPK Bantuan Keluarga Miskin",
     version="1.0.0",
 )
 
+
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+if getattr(settings, "FRONTEND_URL", None):
+    allowed_origins.append(settings.FRONTEND_URL)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
+    allow_origins=list(set(allowed_origins)),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(health_router, prefix="/api")
+
+@app.get("/")
+def root():
+    return {
+        "message": "API SPK Bantuan Keluarga Miskin berjalan.",
+        "docs": "/docs",
+        "health": "/api/health",
+    }
+
+
+app.include_router(health_router, prefix="/api", tags=["Health"])
 app.include_router(kriteria_router, prefix="/api/kriteria", tags=["Kriteria"])
 app.include_router(keluarga_router, prefix="/api/keluarga", tags=["Keluarga"])
 app.include_router(ahp_router, prefix="/api/ahp", tags=["AHP"])

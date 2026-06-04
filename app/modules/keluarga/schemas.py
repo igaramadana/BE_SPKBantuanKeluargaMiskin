@@ -1,30 +1,51 @@
-from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Any, List, Optional
+
+from pydantic import BaseModel
 
 
-class KeluargaCreate(BaseModel):
-    user_id: Optional[str] = None
-    nama_kepala_keluarga: str = Field(..., min_length=2)
-    nik: str = Field(..., min_length=8)
+class PenilaianManualItem(BaseModel):
+    kode_kriteria: str
+    nilai_awal: float
+
+
+class KeluargaCreateRequest(BaseModel):
+    nama_kepala_keluarga: str
+    nik: str
     alamat: Optional[str] = None
     kelurahan: Optional[str] = None
     dusun: Optional[str] = None
-    jumlah_anggota: Optional[int] = Field(default=None, ge=1)
-    created_by: Optional[str] = None
+    jumlah_anggota: Optional[int] = None
+    penilaian: Optional[List[PenilaianManualItem]] = None
 
 
-class KeluargaUpdate(BaseModel):
-    user_id: Optional[str] = None
-    nama_kepala_keluarga: Optional[str] = Field(default=None, min_length=2)
-    nik: Optional[str] = Field(default=None, min_length=8)
+class KeluargaUpdateRequest(BaseModel):
+    nama_kepala_keluarga: Optional[str] = None
+    nik: Optional[str] = None
     alamat: Optional[str] = None
     kelurahan: Optional[str] = None
     dusun: Optional[str] = None
-    jumlah_anggota: Optional[int] = Field(default=None, ge=1)
+    jumlah_anggota: Optional[int] = None
     status_verifikasi: Optional[str] = None
     catatan_admin: Optional[str] = None
+    penilaian: Optional[List[PenilaianManualItem]] = None
 
 
-class KeluargaVerifikasi(BaseModel):
+class KeluargaVerifikasiRequest(BaseModel):
     status_verifikasi: str
     catatan_admin: Optional[str] = None
+
+
+class KeluargaResponse(BaseModel):
+    id: str
+    user_id: Optional[str] = None
+    nama_kepala_keluarga: str
+    nik: str
+    alamat: Optional[str] = None
+    kelurahan: Optional[str] = None
+    dusun: Optional[str] = None
+    jumlah_anggota: Optional[int] = None
+    status_verifikasi: str
+    catatan_admin: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: Any
+    updated_at: Optional[Any] = None

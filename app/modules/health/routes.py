@@ -1,10 +1,12 @@
 from fastapi import APIRouter
 
+
 router = APIRouter()
 
+
 @router.get("/health")
-def cek_api():
+def health_check():
     return {
-        "status": "Ok bro",
-        "message": "API SPK aman guys."
+        "status": "ok",
+        "message": "API aktif.",
     }

@@ -1,36 +1,31 @@
 from fastapi import HTTPException
+
 from app.modules.keluarga import repository
+from app.modules.keluarga.schemas import (
+    KeluargaCreateRequest,
+    KeluargaUpdateRequest,
+    KeluargaVerifikasiRequest,
+)
 
 
-STATUS_VERIFIKASI_VALID = [
-    "pending",
-    "terverifikasi",
-    "ditolak",
-    "perlu_perbaikan",
-]
+VALID_STATUS = {"pending", "terverifikasi", "ditolak", "perlu_perbaikan"}
 
 
 def gas_ambil_semua_keluarga(
-    search=None,
-    kelurahan=None,
-    dusun=None,
-    status_verifikasi=None,
+    search: str | None = None,
+    status_verifikasi: str | None = None,
+    kelurahan: str | None = None,
+    dusun: str | None = None,
 ):
-    if status_verifikasi and status_verifikasi not in STATUS_VERIFIKASI_VALID:
-        raise HTTPException(
-            status_code=400,
-            detail="Status verifikasi tidak valid.",
-        )
-
     return repository.ambil_semua_keluarga(
         search=search,
+        status_verifikasi=status_verifikasi,
         kelurahan=kelurahan,
         dusun=dusun,
-        status_verifikasi=status_verifikasi,
     )
 
 
-def gas_ambil_detail_keluarga(keluarga_id: str):
+def gas_ambil_keluarga_detail(keluarga_id: str):
     keluarga = repository.ambil_keluarga_by_id(keluarga_id)
 
     if not keluarga:
@@ -39,25 +34,36 @@ def gas_ambil_detail_keluarga(keluarga_id: str):
             detail="Data keluarga tidak ditemukan.",
         )
 
+    keluarga["penilaian"] = repository.ambil_penilaian_by_keluarga(keluarga_id)
+
     return keluarga
 
 
-def gas_bikin_keluarga(payload):
-    keluarga_lama = repository.ambil_keluarga_by_nik(payload.nik)
+def gas_tambah_keluarga(payload: KeluargaCreateRequest):
+    try:
+        keluarga = repository.tambah_keluarga(payload.model_dump(exclude={"penilaian"}))
 
-    if keluarga_lama:
-        raise HTTPException(
-            status_code=400,
-            detail="NIK sudah terdaftar.",
+        penilaian_payload = payload.penilaian or []
+
+        penilaian = repository.simpan_banyak_penilaian_manual(
+            keluarga_id=keluarga["id"],
+            penilaian=[item.model_dump() for item in penilaian_payload],
         )
 
-    try:
-        return repository.bikin_keluarga(payload)
+        return {
+            "message": "Data keluarga berhasil ditambahkan.",
+            "data": keluarga,
+            "penilaian": penilaian,
+        }
+
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 
-def gas_update_keluarga(keluarga_id: str, payload):
+def gas_update_keluarga(keluarga_id: str, payload: KeluargaUpdateRequest):
     keluarga_lama = repository.ambil_keluarga_by_id(keluarga_id)
 
     if not keluarga_lama:
@@ -66,34 +72,32 @@ def gas_update_keluarga(keluarga_id: str, payload):
             detail="Data keluarga tidak ditemukan.",
         )
 
-    data_dict = payload.model_dump(exclude_unset=True)
-
-    if not data_dict:
-        raise HTTPException(
-            status_code=400,
-            detail="Tidak ada data yang diubah.",
+    try:
+        data_update = payload.model_dump(
+            exclude_unset=True,
+            exclude={"penilaian"},
         )
 
-    if "status_verifikasi" in data_dict:
-        if data_dict["status_verifikasi"] not in STATUS_VERIFIKASI_VALID:
-            raise HTTPException(
-                status_code=400,
-                detail="Status verifikasi tidak valid.",
-            )
+        keluarga = repository.update_keluarga(keluarga_id, data_update)
 
-    if "nik" in data_dict and data_dict["nik"] != keluarga_lama["nik"]:
-        nik_sudah_ada = repository.ambil_keluarga_by_nik(data_dict["nik"])
+        penilaian_payload = payload.penilaian or []
 
-        if nik_sudah_ada:
-            raise HTTPException(
-                status_code=400,
-                detail="NIK sudah digunakan data keluarga lain.",
-            )
+        penilaian = repository.simpan_banyak_penilaian_manual(
+            keluarga_id=keluarga_id,
+            penilaian=[item.model_dump() for item in penilaian_payload],
+        )
 
-    try:
-        return repository.update_keluarga(keluarga_id, data_dict)
+        return {
+            "message": "Data keluarga berhasil diperbarui.",
+            "data": keluarga,
+            "penilaian": penilaian,
+        }
+
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 
 def gas_hapus_keluarga(keluarga_id: str):
@@ -106,18 +110,21 @@ def gas_hapus_keluarga(keluarga_id: str):
         )
 
     try:
-        deleted = repository.hapus_keluarga(keluarga_id)
+        keluarga = repository.hapus_keluarga(keluarga_id)
 
         return {
             "message": "Data keluarga berhasil dihapus.",
-            "data": deleted,
+            "data": keluarga,
         }
 
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 
-def gas_verifikasi_keluarga(keluarga_id: str, payload):
+def gas_verifikasi_keluarga(keluarga_id: str, payload: KeluargaVerifikasiRequest):
     keluarga_lama = repository.ambil_keluarga_by_id(keluarga_id)
 
     if not keluarga_lama:
@@ -126,18 +133,26 @@ def gas_verifikasi_keluarga(keluarga_id: str, payload):
             detail="Data keluarga tidak ditemukan.",
         )
 
-    if payload.status_verifikasi not in STATUS_VERIFIKASI_VALID:
+    if payload.status_verifikasi not in VALID_STATUS:
         raise HTTPException(
             status_code=400,
             detail="Status verifikasi tidak valid.",
         )
 
     try:
-        return repository.verifikasi_keluarga(
+        keluarga = repository.verifikasi_keluarga(
             keluarga_id=keluarga_id,
             status_verifikasi=payload.status_verifikasi,
             catatan_admin=payload.catatan_admin,
         )
 
+        return {
+            "message": "Status keluarga berhasil diperbarui.",
+            "data": keluarga,
+        }
+
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )

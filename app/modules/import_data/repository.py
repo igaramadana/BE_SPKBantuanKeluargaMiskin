@@ -1,18 +1,69 @@
-# app/modules/import_data/repository.py
-
 import json
-from uuid import uuid4
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from app.db.connection import ambil_koneksi
 
 
 def bikin_uuid() -> str:
-    """
-    Membuat UUID dalam bentuk string.
-    Dipakai supaya kolom id tidak null walaupun database belum punya default UUID.
-    """
     return str(uuid4())
+
+
+def bersihkan_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+
+    if text == "":
+        return None
+
+    if text.lower() in ["nan", "none", "null", "-"]:
+        return None
+
+    return text
+
+
+def normalisasi_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+
+    try:
+        text = str(value).strip().replace(",", ".")
+
+        if text == "":
+            return None
+
+        number = int(float(text))
+
+        if number <= 0:
+            return None
+
+        return number
+
+    except Exception:
+        return None
+
+
+def normalisasi_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+
+    try:
+        text = str(value).strip().replace(",", ".")
+
+        if text == "":
+            return None
+
+        number = float(text)
+
+        if number < 0:
+            return None
+
+        return number
+
+    except Exception:
+        return None
 
 
 def bikin_import_batch(
@@ -24,8 +75,6 @@ def bikin_import_batch(
     cur = conn.cursor()
 
     try:
-        import_batch_id = bikin_uuid()
-
         cur.execute(
             """
             INSERT INTO import_batch (
@@ -48,7 +97,7 @@ def bikin_import_batch(
                 created_at
             """,
             (
-                import_batch_id,
+                bikin_uuid(),
                 nama_file,
                 jumlah_baris,
                 uploaded_by,
@@ -57,7 +106,6 @@ def bikin_import_batch(
 
         row = cur.fetchone()
         conn.commit()
-
         return row
 
     except Exception as error:
@@ -83,7 +131,6 @@ def simpan_raw_rows(
         hasil = []
 
         for row in rows:
-            raw_id = bikin_uuid()
             errors = []
 
             for kolom in kolom_wajib:
@@ -120,7 +167,7 @@ def simpan_raw_rows(
                     created_at
                 """,
                 (
-                    raw_id,
+                    bikin_uuid(),
                     import_batch_id,
                     json.dumps(row, default=str),
                     status_validasi,
@@ -263,41 +310,33 @@ def ambil_raw_by_batch(import_batch_id: str, only_valid: bool = False):
         conn.close()
 
 
-def bersihkan_text(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-
-    text = str(value).strip()
-
-    if text == "":
-        return None
-
-    if text.lower() in ["nan", "none", "null", "-"]:
-        return None
-
-    return text
-
-
-def normalisasi_jumlah_anggota(value: Any) -> Optional[int]:
-    if value is None:
-        return None
+def ambil_kriteria_aktif_by_kode():
+    conn = ambil_koneksi()
+    cur = conn.cursor()
 
     try:
-        text = str(value).strip()
+        cur.execute(
+            """
+            SELECT
+                id,
+                kode,
+                nama,
+                jenis,
+                bobot_ahp,
+                aktif,
+                urutan
+            FROM kriteria
+            WHERE aktif = true
+            """
+        )
 
-        if text == "":
-            return None
+        rows = cur.fetchall()
 
-        # Handle angka dari Excel seperti "5.0"
-        number = int(float(text))
+        return {str(row["kode"]).upper(): row for row in rows}
 
-        if number <= 0:
-            return None
-
-        return number
-
-    except Exception:
-        return None
+    finally:
+        cur.close()
+        conn.close()
 
 
 def upsert_keluarga_import(data: Dict[str, Any]):
@@ -305,17 +344,15 @@ def upsert_keluarga_import(data: Dict[str, Any]):
     cur = conn.cursor()
 
     try:
-        keluarga_id = bikin_uuid()
-
         nama_kepala_keluarga = bersihkan_text(data.get("nama_kepala_keluarga"))
         nik = bersihkan_text(data.get("nik"))
         alamat = bersihkan_text(data.get("alamat"))
         kelurahan = bersihkan_text(data.get("kelurahan"))
         dusun = bersihkan_text(data.get("dusun"))
-        jumlah_anggota = normalisasi_jumlah_anggota(data.get("jumlah_anggota"))
+        jumlah_anggota = normalisasi_int(data.get("jumlah_anggota"))
 
         if not nik:
-            raise ValueError("NIK wajib ada saat mapping ke data keluarga.")
+            raise ValueError("NIK wajib ada saat import data keluarga.")
 
         if not nama_kepala_keluarga:
             nama_kepala_keluarga = f"Keluarga Import {nik}"
@@ -376,7 +413,7 @@ def upsert_keluarga_import(data: Dict[str, Any]):
                 updated_at
             """,
             (
-                keluarga_id,
+                bikin_uuid(),
                 nama_kepala_keluarga,
                 nik,
                 alamat,
@@ -388,7 +425,6 @@ def upsert_keluarga_import(data: Dict[str, Any]):
 
         row = cur.fetchone()
         conn.commit()
-
         return row
 
     except Exception as error:
@@ -400,74 +436,67 @@ def upsert_keluarga_import(data: Dict[str, Any]):
         conn.close()
 
 
-def hapus_raw_by_batch(import_batch_id: str):
-    """
-    Optional helper.
-    Dipakai kalau nanti kamu mau reset data raw berdasarkan batch tertentu.
-    """
+def simpan_penilaian_import(
+    keluarga_id: str,
+    kriteria_id: str,
+    nilai_awal: float,
+):
     conn = ambil_koneksi()
     cur = conn.cursor()
 
     try:
         cur.execute(
             """
-            DELETE FROM import_keluarga_raw
-            WHERE import_batch_id = %s
-            RETURNING id
-            """,
-            (import_batch_id,),
-        )
-
-        rows = cur.fetchall()
-        conn.commit()
-
-        return rows
-
-    except Exception as error:
-        conn.rollback()
-        raise error
-
-    finally:
-        cur.close()
-        conn.close()
-
-
-def hapus_import_batch(import_batch_id: str):
-    """
-    Optional helper.
-    Menghapus batch import beserta raw data-nya.
-    """
-    conn = ambil_koneksi()
-    cur = conn.cursor()
-
-    try:
-        cur.execute(
-            """
-            DELETE FROM import_keluarga_raw
-            WHERE import_batch_id = %s
-            """,
-            (import_batch_id,),
-        )
-
-        cur.execute(
-            """
-            DELETE FROM import_batch
-            WHERE id = %s
+            INSERT INTO penilaian (
+                id,
+                keluarga_id,
+                kriteria_id,
+                sub_kriteria_id,
+                nilai_awal,
+                nilai_normalisasi,
+                nilai_terbobot,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                NULL,
+                %s,
+                NULL,
+                NULL,
+                NOW(),
+                NOW()
+            )
+            ON CONFLICT (keluarga_id, kriteria_id)
+            DO UPDATE SET
+                nilai_awal = EXCLUDED.nilai_awal,
+                sub_kriteria_id = NULL,
+                nilai_normalisasi = NULL,
+                nilai_terbobot = NULL,
+                updated_at = NOW()
             RETURNING
                 id,
-                nama_file,
-                jumlah_baris,
-                jumlah_valid,
-                jumlah_error,
-                uploaded_by,
-                created_at
+                keluarga_id,
+                kriteria_id,
+                sub_kriteria_id,
+                nilai_awal,
+                nilai_normalisasi,
+                nilai_terbobot,
+                created_at,
+                updated_at
             """,
-            (import_batch_id,),
+            (
+                bikin_uuid(),
+                keluarga_id,
+                kriteria_id,
+                nilai_awal,
+            ),
         )
 
         row = cur.fetchone()
         conn.commit()
-
         return row
 
     except Exception as error:
@@ -477,3 +506,96 @@ def hapus_import_batch(import_batch_id: str):
     finally:
         cur.close()
         conn.close()
+
+
+def proses_import_keluarga_dan_penilaian(
+    import_batch_id: str,
+    kolom_mapping: Dict[str, Optional[str]],
+):
+    raw_rows = ambil_raw_by_batch(import_batch_id, only_valid=True)
+    kriteria_by_kode = ambil_kriteria_aktif_by_kode()
+
+    skor_columns = {
+        "C1": kolom_mapping.get("kolom_skor_c1") or "skor_C1_kondisi_rumah",
+        "C2": kolom_mapping.get("kolom_skor_c2") or "skor_C2_jumlah_tanggungan",
+        "C3": kolom_mapping.get("kolom_skor_c3")
+        or "skor_C3_pekerjaan_kepala_keluarga",
+        "C4": kolom_mapping.get("kolom_skor_c4")
+        or "skor_C4_kepemilikan_aset_cost",
+        "C5": kolom_mapping.get("kolom_skor_c5") or "skor_C5_fasilitas_dasar",
+        "C6": kolom_mapping.get("kolom_skor_c6")
+        or "skor_C6_pendidikan_kepala_keluarga",
+    }
+
+    total_diproses = 0
+    total_berhasil = 0
+    total_gagal = 0
+    total_penilaian_berhasil = 0
+    total_penilaian_gagal = 0
+    errors = []
+
+    for raw in raw_rows:
+        total_diproses += 1
+
+        try:
+            raw_json = raw["raw_json"]
+
+            if isinstance(raw_json, str):
+                row_data: Dict[str, Any] = json.loads(raw_json)
+            else:
+                row_data = raw_json
+
+            nama_col = kolom_mapping.get("kolom_nama_kepala_keluarga")
+            nik_col = kolom_mapping.get("kolom_nik")
+            alamat_col = kolom_mapping.get("kolom_alamat")
+            kelurahan_col = kolom_mapping.get("kolom_kelurahan")
+            dusun_col = kolom_mapping.get("kolom_dusun")
+            anggota_col = kolom_mapping.get("kolom_jumlah_anggota")
+
+            data_keluarga = {
+                "nama_kepala_keluarga": row_data.get(nama_col) if nama_col else None,
+                "nik": row_data.get(nik_col) if nik_col else None,
+                "alamat": row_data.get(alamat_col) if alamat_col else None,
+                "kelurahan": row_data.get(kelurahan_col) if kelurahan_col else None,
+                "dusun": row_data.get(dusun_col) if dusun_col else None,
+                "jumlah_anggota": row_data.get(anggota_col) if anggota_col else None,
+            }
+
+            keluarga = upsert_keluarga_import(data_keluarga)
+            keluarga_id = keluarga["id"]
+
+            for kode_kriteria, kolom_skor in skor_columns.items():
+                kriteria = kriteria_by_kode.get(kode_kriteria)
+
+                if not kriteria:
+                    total_penilaian_gagal += 1
+                    continue
+
+                nilai = normalisasi_float(row_data.get(kolom_skor))
+
+                if nilai is None:
+                    total_penilaian_gagal += 1
+                    continue
+
+                simpan_penilaian_import(
+                    keluarga_id=keluarga_id,
+                    kriteria_id=kriteria["id"],
+                    nilai_awal=nilai,
+                )
+
+                total_penilaian_berhasil += 1
+
+            total_berhasil += 1
+
+        except Exception as error:
+            total_gagal += 1
+            errors.append(str(error))
+
+    return {
+        "total_diproses": total_diproses,
+        "total_berhasil": total_berhasil,
+        "total_gagal": total_gagal,
+        "total_penilaian_berhasil": total_penilaian_berhasil,
+        "total_penilaian_gagal": total_penilaian_gagal,
+        "errors": errors[:20],
+    }

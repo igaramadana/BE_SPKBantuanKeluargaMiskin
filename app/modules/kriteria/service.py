@@ -1,15 +1,13 @@
 from fastapi import HTTPException
+
 from app.modules.kriteria import repository
-
-
-JENIS_KRITERIA_VALID = ["benefit", "cost"]
 
 
 def gas_ambil_semua_kriteria():
     return repository.ambil_semua_kriteria()
 
 
-def gas_ambil_detail_kriteria(kriteria_id: str):
+def gas_ambil_kriteria_detail(kriteria_id: str):
     kriteria = repository.ambil_kriteria_by_id(kriteria_id)
 
     if not kriteria:
@@ -21,25 +19,26 @@ def gas_ambil_detail_kriteria(kriteria_id: str):
     return kriteria
 
 
-def gas_bikin_kriteria(payload):
-    if payload.jenis not in JENIS_KRITERIA_VALID:
-        raise HTTPException(
-            status_code=400,
-            detail="Jenis kriteria harus benefit atau cost.",
-        )
-
-    kriteria_lama = repository.ambil_kriteria_by_kode(payload.kode)
-
-    if kriteria_lama:
-        raise HTTPException(
-            status_code=400,
-            detail="Kode kriteria sudah digunakan.",
-        )
-
+def gas_tambah_kriteria(payload):
     try:
+        existing = repository.ambil_kriteria_by_kode(payload.kode)
+
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail="Kode kriteria sudah digunakan.",
+            )
+
         return repository.bikin_kriteria(payload)
+
+    except HTTPException:
+        raise
+
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 
 def gas_update_kriteria(kriteria_id: str, payload):
@@ -51,33 +50,16 @@ def gas_update_kriteria(kriteria_id: str, payload):
             detail="Kriteria tidak ditemukan.",
         )
 
-    data_dict = payload.model_dump(exclude_unset=True)
-
-    if not data_dict:
-        raise HTTPException(
-            status_code=400,
-            detail="Tidak ada data yang diubah.",
-        )
-
-    if "jenis" in data_dict and data_dict["jenis"] not in JENIS_KRITERIA_VALID:
-        raise HTTPException(
-            status_code=400,
-            detail="Jenis kriteria harus benefit atau cost.",
-        )
-
-    if "kode" in data_dict and data_dict["kode"] != kriteria_lama["kode"]:
-        kode_sudah_ada = repository.ambil_kriteria_by_kode(data_dict["kode"])
-
-        if kode_sudah_ada:
-            raise HTTPException(
-                status_code=400,
-                detail="Kode kriteria sudah digunakan.",
-            )
-
     try:
-        return repository.update_kriteria(kriteria_id, data_dict)
+        data_update = payload.model_dump(exclude_unset=True)
+
+        return repository.update_kriteria(kriteria_id, data_update)
+
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 
 def gas_hapus_kriteria(kriteria_id: str):
@@ -90,12 +72,10 @@ def gas_hapus_kriteria(kriteria_id: str):
         )
 
     try:
-        hasil = repository.nonaktifkan_kriteria(kriteria_id)
-
-        return {
-            "message": "Kriteria berhasil dinonaktifkan.",
-            "data": hasil,
-        }
+        return repository.nonaktifkan_kriteria(kriteria_id)
 
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )

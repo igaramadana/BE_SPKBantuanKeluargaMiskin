@@ -1,95 +1,242 @@
-from fastapi import HTTPException
+import io
+import math
+from typing import Any, Dict, List, Optional
+
 import pandas as pd
+from fastapi import HTTPException, UploadFile
+
 from app.modules.import_data import repository
+from app.modules.import_data.schemas import MappingImportRequest
 
 
-KOLOM_WAJIB_DEFAULT = [
+DEFAULT_REQUIRED_COLUMNS = [
     "kelurahan",
     "dusun",
     "jml_anggota_keluarga",
 ]
 
 
-def baca_file_ke_dataframe(file):
-    nama_file = file.filename or ""
+def sanitize_json_value(value: Any):
+    """
+    Membersihkan value agar aman dikirim sebagai JSON.
+    Masalah utama pandas: NaN / Infinity tidak valid untuk JSON response FastAPI.
+    """
+    if value is None:
+        return None
 
-    if not nama_file.endswith((".csv", ".xls", ".xlsx")):
-        raise HTTPException(
-            status_code=400,
-            detail="File harus berformat CSV, XLS, atau XLSX.",
-        )
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
 
-    try:
-        if nama_file.endswith(".csv"):
-            return pd.read_csv(file.file), nama_file
+    if isinstance(value, int):
+        return value
 
-        return pd.read_excel(file.file), nama_file
+    if isinstance(value, str):
+        text = value.strip()
 
-    except Exception as error:
-        raise HTTPException(status_code=400, detail=f"Gagal membaca file: {str(error)}")
+        if text.lower() in ["nan", "none", "null", ""]:
+            return None
+
+        return value
+
+    if isinstance(value, dict):
+        return {str(k): sanitize_json_value(v) for k, v in value.items()}
+
+    if isinstance(value, list):
+        return [sanitize_json_value(item) for item in value]
+
+    if pd.isna(value):
+        return None
+
+    return value
 
 
-def bersihin_dataframe(df):
-    df = df.fillna("")
-    df.columns = [str(column).strip() for column in df.columns]
+def sanitize_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [
+        {str(key): sanitize_json_value(value) for key, value in row.items()}
+        for row in records
+    ]
+
+
+def normalisasi_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    df.columns = [str(col).strip() for col in df.columns]
+
+    # Ganti NaN, NaT, inf, -inf menjadi None agar aman untuk JSON dan insert raw.
+    df = df.replace([float("inf"), float("-inf")], None)
+    df = df.where(pd.notnull(df), None)
+
     return df
 
 
-def intip_file(file):
-    df, nama_file = baca_file_ke_dataframe(file)
-    df = bersihin_dataframe(df)
+async def baca_file_dataset(file: UploadFile) -> pd.DataFrame:
+    filename = file.filename or ""
+    content = await file.read()
 
-    daftar_kolom = list(df.columns)
+    try:
+        if filename.lower().endswith(".csv"):
+            try:
+                df = pd.read_csv(io.BytesIO(content))
+            except UnicodeDecodeError:
+                df = pd.read_csv(io.BytesIO(content), encoding="latin1")
 
-    kolom_kurang = [
-        kolom for kolom in KOLOM_WAJIB_DEFAULT
-        if kolom not in daftar_kolom
-    ]
+        elif filename.lower().endswith((".xls", ".xlsx")):
+            df = pd.read_excel(io.BytesIO(content))
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Format file tidak didukung. Gunakan CSV, XLS, atau XLSX.",
+            )
+
+        return normalisasi_dataframe(df)
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Gagal membaca file dataset: {str(error)}",
+        )
+
+
+def cek_missing_columns(columns: List[str], required_columns: List[str]):
+    normalized_columns = {str(col).strip() for col in columns}
+
+    return [column for column in required_columns if column not in normalized_columns]
+
+
+async def gas_preview_dataset(file: UploadFile):
+    df = await baca_file_dataset(file)
+
+    columns = [str(col) for col in df.columns]
+    missing = cek_missing_columns(columns, DEFAULT_REQUIRED_COLUMNS)
+
+    preview_records = df.head(8).to_dict(orient="records")
+    preview = sanitize_records(preview_records)
 
     return {
-        "filename": nama_file,
-        "total_rows": len(df),
-        "columns": daftar_kolom,
-        "missing_required_columns": kolom_kurang,
-        "preview": df.head(10).to_dict(orient="records"),
+        "filename": file.filename,
+        "columns": columns,
+        "total_rows": int(len(df)),
+        "preview": preview,
+        "missing_required_columns": missing,
     }
 
 
-def gas_simpan_raw_import(file, uploaded_by=None):
-    df, nama_file = baca_file_ke_dataframe(file)
-    df = bersihin_dataframe(df)
+async def gas_simpan_raw_dataset(
+    file: UploadFile,
+    uploaded_by: Optional[str] = None,
+):
+    df = await baca_file_dataset(file)
 
-    rows = df.to_dict(orient="records")
+    columns = [str(col) for col in df.columns]
+    missing = cek_missing_columns(columns, DEFAULT_REQUIRED_COLUMNS)
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Kolom wajib tidak ditemukan: {', '.join(missing)}",
+        )
+
+    raw_rows: List[Dict[str, Any]] = df.to_dict(orient="records")
+    rows = sanitize_records(raw_rows)
 
     try:
         batch = repository.bikin_import_batch(
-            nama_file=nama_file,
-            jumlah_baris=len(df),
+            nama_file=file.filename or "dataset",
+            jumlah_baris=len(rows),
             uploaded_by=uploaded_by,
         )
 
         hasil_raw = repository.simpan_raw_rows(
             import_batch_id=batch["id"],
             rows=rows,
-            kolom_wajib=KOLOM_WAJIB_DEFAULT,
+            kolom_wajib=DEFAULT_REQUIRED_COLUMNS,
         )
 
+        updated_batch = repository.ambil_import_batch_by_id(batch["id"])
+
         return {
-            "message": "Import raw berhasil disimpan.",
-            "batch": {
-                **batch,
-                "jumlah_valid": hasil_raw["jumlah_valid"],
-                "jumlah_error": hasil_raw["jumlah_error"],
-            },
-            "sample": hasil_raw["rows"][:10],
+            "message": "Raw dataset berhasil disimpan.",
+            "batch": sanitize_json_value(updated_batch),
+            "jumlah_valid": hasil_raw["jumlah_valid"],
+            "jumlah_error": hasil_raw["jumlah_error"],
         }
 
     except Exception as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 
-def gas_ambil_semua_batch():
-    return repository.ambil_import_batch()
+def gas_ambil_import_batch():
+    try:
+        rows = repository.ambil_import_batch()
+        return sanitize_json_value(rows)
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
+
+def gas_ambil_import_batches():
+    return gas_ambil_import_batch()
+
+
+def gas_proses_import_keluarga_dan_penilaian(payload: MappingImportRequest):
+    batch = repository.ambil_import_batch_by_id(payload.import_batch_id)
+
+    if not batch:
+        raise HTTPException(
+            status_code=404,
+            detail="Batch import tidak ditemukan.",
+        )
+
+    kolom_mapping = {
+        "kolom_nama_kepala_keluarga": payload.kolom_nama_kepala_keluarga,
+        "kolom_nik": payload.kolom_nik,
+        "kolom_alamat": payload.kolom_alamat,
+        "kolom_kelurahan": payload.kolom_kelurahan,
+        "kolom_dusun": payload.kolom_dusun,
+        "kolom_jumlah_anggota": payload.kolom_jumlah_anggota,
+        "kolom_skor_c1": payload.kolom_skor_c1,
+        "kolom_skor_c2": payload.kolom_skor_c2,
+        "kolom_skor_c3": payload.kolom_skor_c3,
+        "kolom_skor_c4": payload.kolom_skor_c4,
+        "kolom_skor_c5": payload.kolom_skor_c5,
+        "kolom_skor_c6": payload.kolom_skor_c6,
+    }
+
+    try:
+        hasil = repository.proses_import_keluarga_dan_penilaian(
+            import_batch_id=payload.import_batch_id,
+            kolom_mapping=kolom_mapping,
+        )
+
+        return sanitize_json_value(
+            {
+                "message": "Dataset berhasil diproses ke Data Warga dan Penilaian.",
+                "total_diproses": hasil["total_diproses"],
+                "total_berhasil": hasil["total_berhasil"],
+                "total_gagal": hasil["total_gagal"],
+                "total_penilaian_berhasil": hasil["total_penilaian_berhasil"],
+                "total_penilaian_gagal": hasil["total_penilaian_gagal"],
+                "errors": hasil.get("errors", []),
+            }
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
 
 
 def gas_ambil_detail_batch(import_batch_id: str):
@@ -98,82 +245,14 @@ def gas_ambil_detail_batch(import_batch_id: str):
     if not batch:
         raise HTTPException(
             status_code=404,
-            detail="Import batch tidak ditemukan.",
+            detail="Batch import tidak ditemukan.",
         )
 
-    rows = repository.ambil_raw_by_batch(import_batch_id)
+    rows = repository.ambil_raw_by_batch(import_batch_id, only_valid=False)
 
-    return {
-        "batch": batch,
-        "rows": rows,
-    }
-
-
-def gas_mapping_ke_keluarga(payload):
-    batch = repository.ambil_import_batch_by_id(payload.import_batch_id)
-
-    if not batch:
-        raise HTTPException(
-            status_code=404,
-            detail="Import batch tidak ditemukan.",
-        )
-
-    rows = repository.ambil_raw_by_batch(payload.import_batch_id, only_valid=True)
-
-    if not rows:
-        raise HTTPException(
-            status_code=400,
-            detail="Tidak ada data valid untuk dimapping.",
-        )
-
-    hasil = []
-    gagal = []
-
-    for item in rows:
-        raw = item["raw_json"]
-
-        try:
-            nik = None
-
-            if payload.kolom_nik and payload.kolom_nik in raw:
-                nik = str(raw[payload.kolom_nik]).strip()
-
-            if not nik:
-                nik = f"IMPORT-{item['id']}"
-
-            nama_kepala_keluarga = None
-
-            if payload.kolom_nama_kepala_keluarga and payload.kolom_nama_kepala_keluarga in raw:
-                nama_kepala_keluarga = str(raw[payload.kolom_nama_kepala_keluarga]).strip()
-
-            if not nama_kepala_keluarga:
-                nama_kepala_keluarga = f"Keluarga Import {item['id']}"
-
-            data_keluarga = {
-                "nama_kepala_keluarga": nama_kepala_keluarga,
-                "nik": nik,
-                "alamat": raw.get(payload.kolom_alamat) if payload.kolom_alamat else None,
-                "kelurahan": raw.get(payload.kolom_kelurahan),
-                "dusun": raw.get(payload.kolom_dusun),
-                "jumlah_anggota": int(float(raw.get(payload.kolom_jumlah_anggota) or 0)),
-            }
-
-            keluarga = repository.upsert_keluarga_import(data_keluarga)
-            hasil.append(keluarga)
-
-        except Exception as error:
-            gagal.append(
-                {
-                    "raw_id": item["id"],
-                    "error": str(error),
-                }
-            )
-
-    return {
-        "message": "Mapping import ke keluarga selesai.",
-        "total_diproses": len(rows),
-        "total_berhasil": len(hasil),
-        "total_gagal": len(gagal),
-        "berhasil": hasil,
-        "gagal": gagal,
-    }
+    return sanitize_json_value(
+        {
+            "batch": batch,
+            "rows": rows,
+        }
+    )

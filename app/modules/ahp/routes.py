@@ -1,16 +1,12 @@
-from fastapi import APIRouter, HTTPException
-from app.modules.ahp.schemas import AhpRequest
-from app.modules.ahp.service import hitung_ahp
+from fastapi import APIRouter
+
+from app.modules.ahp import service
+from app.modules.ahp.schemas import AhpCalculateRequest
+
 
 router = APIRouter()
 
-@router.post("/calcuate")
-def gas_hitung_ahp(payload: AhpRequest):
-    try:
-        return hitung_ahp(payload.matrix)
-    
-    except ValueError as error:
-        raise HTTPException(
-            status_code=400,
-            detail=str(error)
-        )
+
+@router.post("/calculate")
+def calculate_ahp(payload: AhpCalculateRequest):
+    return service.gas_hitung_ahp(payload)

@@ -1,31 +1,35 @@
 from fastapi import APIRouter
 
-from app.modules.kriteria.schemas import KriteriaCreate, KriteriaUpdate
 from app.modules.kriteria import service
+from app.modules.kriteria.schemas import (
+    KriteriaCreateRequest,
+    KriteriaUpdateRequest,
+)
+
 
 router = APIRouter()
 
 
 @router.get("")
-def ambil_kriteria():
+def get_all_kriteria():
     return service.gas_ambil_semua_kriteria()
 
 
 @router.get("/{kriteria_id}")
-def ambil_detail_kriteria(kriteria_id: str):
-    return service.gas_ambil_detail_kriteria(kriteria_id)
+def get_detail_kriteria(kriteria_id: str):
+    return service.gas_ambil_kriteria_detail(kriteria_id)
 
 
 @router.post("")
-def tambah_kriteria(payload: KriteriaCreate):
-    return service.gas_bikin_kriteria(payload)
+def create_kriteria(payload: KriteriaCreateRequest):
+    return service.gas_tambah_kriteria(payload)
 
 
-@router.put("/{kriteria_id}")
-def ubah_kriteria(kriteria_id: str, payload: KriteriaUpdate):
+@router.patch("/{kriteria_id}")
+def patch_kriteria(kriteria_id: str, payload: KriteriaUpdateRequest):
     return service.gas_update_kriteria(kriteria_id, payload)
 
 
 @router.delete("/{kriteria_id}")
-def hapus_kriteria(kriteria_id: str):
+def delete_kriteria(kriteria_id: str):
     return service.gas_hapus_kriteria(kriteria_id)
