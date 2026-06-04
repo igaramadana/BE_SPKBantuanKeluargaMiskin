@@ -1,5 +1,11 @@
 from typing import Optional
+from uuid import uuid4
+
 from app.db.connection import ambil_koneksi
+
+
+def bikin_uuid() -> str:
+    return str(uuid4())
 
 
 def ambil_semua_keluarga(
@@ -56,91 +62,25 @@ def ambil_semua_keluarga(
         ORDER BY created_at DESC
     """
 
-    cur.execute(query, tuple(values))
-    rows = cur.fetchall()
+    try:
+        cur.execute(query, tuple(values))
+        rows = cur.fetchall()
+        return rows
 
-    cur.close()
-    conn.close()
-
-    return rows
+    finally:
+        cur.close()
+        conn.close()
 
 
 def ambil_keluarga_by_id(keluarga_id: str):
     conn = ambil_koneksi()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        SELECT
-            id,
-            user_id,
-            nama_kepala_keluarga,
-            nik,
-            alamat,
-            kelurahan,
-            dusun,
-            jumlah_anggota,
-            status_verifikasi,
-            catatan_admin,
-            created_by,
-            created_at,
-            updated_at
-        FROM keluarga
-        WHERE id = %s
-        """,
-        (keluarga_id,),
-    )
-
-    row = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    return row
-
-
-def ambil_keluarga_by_nik(nik: str):
-    conn = ambil_koneksi()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        SELECT
-            id,
-            user_id,
-            nama_kepala_keluarga,
-            nik,
-            alamat,
-            kelurahan,
-            dusun,
-            jumlah_anggota,
-            status_verifikasi,
-            catatan_admin,
-            created_by,
-            created_at,
-            updated_at
-        FROM keluarga
-        WHERE nik = %s
-        """,
-        (nik,),
-    )
-
-    row = cur.fetchone()
-
-    cur.close()
-    conn.close()
-
-    return row
-
-
-def bikin_keluarga(data):
-    conn = ambil_koneksi()
-    cur = conn.cursor()
-
     try:
         cur.execute(
             """
-            INSERT INTO keluarga (
+            SELECT
+                id,
                 user_id,
                 nama_kepala_keluarga,
                 nik,
@@ -148,9 +88,99 @@ def bikin_keluarga(data):
                 kelurahan,
                 dusun,
                 jumlah_anggota,
-                created_by
+                status_verifikasi,
+                catatan_admin,
+                created_by,
+                created_at,
+                updated_at
+            FROM keluarga
+            WHERE id = %s
+            """,
+            (keluarga_id,),
+        )
+
+        row = cur.fetchone()
+        return row
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+def ambil_keluarga_by_nik(nik: str):
+    conn = ambil_koneksi()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """
+            SELECT
+                id,
+                user_id,
+                nama_kepala_keluarga,
+                nik,
+                alamat,
+                kelurahan,
+                dusun,
+                jumlah_anggota,
+                status_verifikasi,
+                catatan_admin,
+                created_by,
+                created_at,
+                updated_at
+            FROM keluarga
+            WHERE nik = %s
+            """,
+            (nik,),
+        )
+
+        row = cur.fetchone()
+        return row
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+def bikin_keluarga(data):
+    conn = ambil_koneksi()
+    cur = conn.cursor()
+
+    keluarga_id = bikin_uuid()
+
+    try:
+        cur.execute(
+            """
+            INSERT INTO keluarga (
+                id,
+                user_id,
+                nama_kepala_keluarga,
+                nik,
+                alamat,
+                kelurahan,
+                dusun,
+                jumlah_anggota,
+                status_verifikasi,
+                catatan_admin,
+                created_by,
+                created_at,
+                updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                'pending',
+                NULL,
+                %s,
+                NOW(),
+                NOW()
+            )
             RETURNING
                 id,
                 user_id,
@@ -167,6 +197,7 @@ def bikin_keluarga(data):
                 updated_at
             """,
             (
+                keluarga_id,
                 data.user_id,
                 data.nama_kepala_keluarga,
                 data.nik,
@@ -195,12 +226,32 @@ def update_keluarga(keluarga_id: str, data_dict: dict):
     conn = ambil_koneksi()
     cur = conn.cursor()
 
+    allowed_fields = {
+        "user_id",
+        "nama_kepala_keluarga",
+        "nik",
+        "alamat",
+        "kelurahan",
+        "dusun",
+        "jumlah_anggota",
+        "status_verifikasi",
+        "catatan_admin",
+    }
+
     fields = []
     values = []
 
     for key, value in data_dict.items():
+        if key not in allowed_fields:
+            continue
+
         fields.append(f"{key} = %s")
         values.append(value)
+
+    if not fields:
+        cur.close()
+        conn.close()
+        return ambil_keluarga_by_id(keluarga_id)
 
     values.append(keluarga_id)
 
@@ -266,7 +317,11 @@ def hapus_keluarga(keluarga_id: str):
         conn.close()
 
 
-def verifikasi_keluarga(keluarga_id: str, status_verifikasi: str, catatan_admin: Optional[str]):
+def verifikasi_keluarga(
+    keluarga_id: str,
+    status_verifikasi: str,
+    catatan_admin: Optional[str],
+):
     conn = ambil_koneksi()
     cur = conn.cursor()
 
@@ -281,10 +336,17 @@ def verifikasi_keluarga(keluarga_id: str, status_verifikasi: str, catatan_admin:
             WHERE id = %s
             RETURNING
                 id,
+                user_id,
                 nama_kepala_keluarga,
                 nik,
+                alamat,
+                kelurahan,
+                dusun,
+                jumlah_anggota,
                 status_verifikasi,
                 catatan_admin,
+                created_by,
+                created_at,
                 updated_at
             """,
             (
