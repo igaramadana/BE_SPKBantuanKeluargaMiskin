@@ -33,6 +33,11 @@ def get_hasil_saw_latest():
     return service.gas_ambil_hasil_terbaru()
 
 
+@router.get("/hasil/riwayat/{riwayat_id}")
+def get_hasil_saw_by_riwayat(riwayat_id: str):
+    return service.gas_ambil_hasil_by_riwayat(riwayat_id)
+
+
 @router.get("/riwayat")
 def get_riwayat_saw():
     return service.gas_ambil_riwayat()

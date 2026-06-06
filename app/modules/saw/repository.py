@@ -359,6 +359,79 @@ def simpan_riwayat_perhitungan(data: Dict[str, Any], jumlah_data: int):
                 nama_perhitungan,
                 metode,
                 jumlah_data,
+                consistency_ratio,
+                mode_status,
+                threshold,
+                kuota,
+                reserve_quota,
+                dihitung_oleh,
+                tanggal_hitung
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                NOW()
+            )
+            RETURNING
+                id,
+                nama_perhitungan,
+                metode,
+                jumlah_data,
+                consistency_ratio,
+                mode_status,
+                threshold,
+                kuota,
+                reserve_quota,
+                dihitung_oleh,
+                tanggal_hitung
+            """,
+            (
+                riwayat_id,
+                data.get("nama_perhitungan"),
+                "AHP-SAW",
+                jumlah_data,
+                data.get("consistency_ratio"),
+                data.get("mode"),
+                data.get("threshold"),
+                data.get("quota"),
+                data.get("reserve_quota"),
+                normalisasi_uuid(data.get("dihitung_oleh")),
+            ),
+        )
+
+        row = normalize_row(cur.fetchone())
+        conn.commit()
+
+        return row
+
+    except Exception as error:
+        conn.rollback()
+        raise error
+
+    finally:
+        cur.close()
+        conn.close()
+    conn = ambil_koneksi()
+    cur = conn.cursor()
+
+    try:
+        riwayat_id = bikin_uuid()
+
+        cur.execute(
+            """
+            INSERT INTO riwayat_perhitungan (
+                id,
+                nama_perhitungan,
+                metode,
+                jumlah_data,
                 mode_status,
                 threshold,
                 kuota,
@@ -511,6 +584,10 @@ def hitung_saw_dari_database(data: Dict[str, Any]):
         raise ValueError("Belum ada kriteria aktif.")
 
     total_bobot = sum(to_float(item.get("bobot_ahp")) for item in kriteria)
+    if abs(total_bobot - 1.0) > 0.01:
+        raise ValueError(
+            f"Total bobot AHP harus mendekati 1. Total bobot saat ini: {total_bobot:.6f}"
+        )
 
     if total_bobot <= 0:
         raise ValueError("Total bobot kriteria masih 0. Isi bobot AHP terlebih dahulu.")
@@ -553,7 +630,6 @@ def hitung_saw_dari_database(data: Dict[str, Any]):
         jumlah_data=len(hasil_status),
     )
 
-    hapus_hasil_lama()
     saved = simpan_hasil_spk(riwayat["id"], hasil_status)
 
     return {
@@ -566,6 +642,43 @@ def hitung_saw_dari_database(data: Dict[str, Any]):
 
 
 def ambil_hasil_terbaru():
+    conn = ambil_koneksi()
+    cur = conn.cursor()
+
+    try:
+        cur.execute(
+            """
+            WITH latest_riwayat AS (
+                SELECT id
+                FROM riwayat_perhitungan
+                ORDER BY tanggal_hitung DESC
+                LIMIT 1
+            )
+            SELECT
+                h.id,
+                h.riwayat_perhitungan_id,
+                h.keluarga_id,
+                k.nama_kepala_keluarga,
+                k.nik,
+                k.kelurahan,
+                k.dusun,
+                h.total_nilai,
+                h.ranking,
+                h.status_sistem,
+                h.status_final,
+                h.tanggal_hitung
+            FROM hasil_spk h
+            JOIN keluarga k ON k.id = h.keluarga_id
+            JOIN latest_riwayat lr ON lr.id = h.riwayat_perhitungan_id
+            ORDER BY h.ranking ASC
+            """
+        )
+
+        return normalize_rows(cur.fetchall())
+
+    finally:
+        cur.close()
+        conn.close()
     conn = ambil_koneksi()
     cur = conn.cursor()
 

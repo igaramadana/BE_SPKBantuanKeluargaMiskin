@@ -83,3 +83,13 @@ def gas_ambil_hasil_saw_terbaru():
 
 def gas_ambil_riwayat_saw():
     return gas_ambil_riwayat()
+
+def gas_ambil_hasil_by_riwayat(riwayat_id: str):
+    try:
+        return repository.ambil_hasil_by_riwayat(riwayat_id)
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )

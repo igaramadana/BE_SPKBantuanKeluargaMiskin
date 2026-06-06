@@ -201,7 +201,72 @@ def bikin_kriteria(data):
         conn.close()
 
 
-def update_kriteria(kriteria_id: str, data_dict: dict):
+def update_kriteria(kriteria_id: str, payload):
+    conn = ambil_koneksi()
+    cur = conn.cursor()
+
+    try:
+        data = payload.model_dump(exclude_unset=True)
+
+        if not data:
+            raise ValueError("Tidak ada data yang dikirim.")
+
+        allowed_fields = {
+            "kode": "kode",
+            "nama": "nama",
+            "jenis": "jenis",
+            "bobot_ahp": "bobot_ahp",
+            "aktif": "aktif",
+            "urutan": "urutan",
+        }
+
+        set_parts = []
+        values = []
+
+        for key, value in data.items():
+            if key in allowed_fields:
+                set_parts.append(f"{allowed_fields[key]} = %s")
+                values.append(value)
+
+        if not set_parts:
+            raise ValueError("Tidak ada field valid untuk diupdate.")
+
+        set_parts.append("updated_at = NOW()")
+        values.append(kriteria_id)
+
+        query = f"""
+            UPDATE kriteria
+            SET {", ".join(set_parts)}
+            WHERE id = %s
+            RETURNING
+                id,
+                kode,
+                nama,
+                jenis,
+                bobot_ahp,
+                aktif,
+                urutan,
+                created_at,
+                updated_at
+        """
+
+        cur.execute(query, values)
+
+        row = cur.fetchone()
+
+        if not row:
+            raise ValueError("Kriteria tidak ditemukan.")
+
+        conn.commit()
+        return row
+
+    except Exception as error:
+        conn.rollback()
+        raise error
+
+    finally:
+        cur.close()
+        conn.close()
     conn = ambil_koneksi()
     cur = conn.cursor()
 

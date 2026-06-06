@@ -28,22 +28,42 @@ class SaveRawImportResponse(BaseModel):
     jumlah_error: int
 
 
+class AutoGeneratePenilaianRequest(BaseModel):
+    import_batch_id: str
+    preview_only: bool = True
+    limit_preview: int = 50
+
+
+class AutoGeneratePenilaianResponse(BaseModel):
+    message: str
+    import_batch_id: str
+    preview_only: bool
+    total_raw: int
+    total_grouped: int
+    total_keluarga_berhasil: int
+    total_penilaian_berhasil: int
+    total_gagal: int
+    preview: List[Dict[str, Any]]
+    errors: List[str]
+
+
+# Backward compatibility untuk endpoint lama.
 class MappingImportRequest(BaseModel):
     import_batch_id: str
 
     kolom_nama_kepala_keluarga: Optional[str] = None
     kolom_nik: Optional[str] = None
     kolom_alamat: Optional[str] = None
-    kolom_kelurahan: str
-    kolom_dusun: str
-    kolom_jumlah_anggota: str
+    kolom_kelurahan: str = "kelurahan"
+    kolom_dusun: str = "dusun"
+    kolom_jumlah_anggota: str = "jml_anggota_keluarga"
 
-    kolom_skor_c1: Optional[str] = "skor_C1_kondisi_rumah"
-    kolom_skor_c2: Optional[str] = "skor_C2_jumlah_tanggungan"
-    kolom_skor_c3: Optional[str] = "skor_C3_pekerjaan_kepala_keluarga"
-    kolom_skor_c4: Optional[str] = "skor_C4_kepemilikan_aset_cost"
-    kolom_skor_c5: Optional[str] = "skor_C5_fasilitas_dasar"
-    kolom_skor_c6: Optional[str] = "skor_C6_pendidikan_kepala_keluarga"
+    kolom_skor_c1: Optional[str] = None
+    kolom_skor_c2: Optional[str] = None
+    kolom_skor_c3: Optional[str] = None
+    kolom_skor_c4: Optional[str] = None
+    kolom_skor_c5: Optional[str] = None
+    kolom_skor_c6: Optional[str] = None
 
 
 class MappingImportResponse(BaseModel):
