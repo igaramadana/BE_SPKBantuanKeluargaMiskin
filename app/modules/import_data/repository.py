@@ -10,9 +10,10 @@ from uuid import uuid4
 import pandas as pd
 
 from app.db.connection import ambil_koneksi
+from app.modules.import_data.simnangkis_mapping import hitung_skor_simnangkis
 
 
-REQUIRED_COLUMNS = ["kelurahan", "dusun", "jml_anggota_keluarga"]
+REQUIRED_COLUMNS = ["kelurahan", "jml_anggota_keluarga"]
 
 
 def bikin_uuid() -> str:
@@ -346,29 +347,6 @@ async def simpan_raw_import(file):
         "jumlah_valid": int(result["jumlah_valid"]),
         "jumlah_error": int(result["jumlah_error"]),
     }
-    df = await baca_file_dataframe(file)
-
-    batch = bikin_import_batch(
-        nama_file=file.filename or "dataset",
-        jumlah_baris=len(df),
-        uploaded_by=None,
-    )
-
-    result = simpan_raw_rows(
-        import_batch_id=batch["id"],
-        rows=df.to_dict(orient="records"),
-    )
-
-    batch["jumlah_valid"] = result["jumlah_valid"]
-    batch["jumlah_error"] = result["jumlah_error"]
-
-    return {
-        "message": "Dataset berhasil disimpan sebagai raw import.",
-        "batch": batch,
-        "jumlah_valid": result["jumlah_valid"],
-        "jumlah_error": result["jumlah_error"],
-    }
-
 
 def ambil_import_batch():
     conn = ambil_koneksi()
@@ -711,18 +689,9 @@ def score_aset(row: Dict[str, Any]) -> float:
 
 
 def generate_scores(row: Dict[str, Any]) -> Dict[str, float]:
-    return {
-        "C1": score_jumlah_anggota(row.get("jml_anggota_keluarga")),
-        "C2": score_luas_lantai(row.get("luas_lantai")),
-        "C3": score_lantai(row.get("lantai")),
-        "C4": score_kondisi(row.get("kondisi_dinding") or row.get("dinding")),
-        "C5": score_kondisi(row.get("kondisi_atap") or row.get("atap")),
-        "C6": score_sumber_air(row.get("sumber_air_minum")),
-        "C7": score_daya_listrik(row.get("daya"), row.get("sumber_penerangan")),
-        "C8": score_fasilitas_bab(row.get("fas_bab"), row.get("kloset")),
-        "C9": score_kendaraan(row),
-        "C10": score_aset(row),
-    }
+    # Pakai mapper khusus SIMNAKIS/BPS supaya dataset berkode angka
+    # tetap bisa diterjemahkan menjadi skor C1-C10 yang benar.
+    return hitung_skor_simnangkis(row)
 
 
 def bikin_kode_keluarga_import(import_batch_id: str, index: int) -> str:
