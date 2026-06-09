@@ -727,11 +727,85 @@ def generate_scores(row: Dict[str, Any]) -> Dict[str, float]:
 
 def bikin_kode_keluarga_import(import_batch_id: str, index: int) -> str:
     short_batch = str(import_batch_id).split("-")[0].upper()
+    return f"IMP-MLATI-{short_batch}-{index:06d}"
 
-    return f"AUTO-MLATI-{short_batch}-{index:06d}"
+
+def generate_nik_import_numeric(index: int, kode_wilayah: str = "350705") -> str:
+    """
+    Generate NIK dummy 16 digit angka untuk data import.
+
+    Format:
+    350705 + DDMMYY + 4 digit urutan
+
+    Contoh:
+    3507050202710001
+    """
+
+    safe_index = max(int(index or 1), 1)
+
+    day = (safe_index % 28) + 1
+    month = (safe_index % 12) + 1
+    year = 70 + (safe_index % 30)
+
+    tanggal_lahir = f"{day:02d}{month:02d}{year:02d}"
+    nomor_urut = f"{safe_index:04d}"
+
+    return f"{kode_wilayah}{tanggal_lahir}{nomor_urut}"[:16]
+
+
+def normalize_nik_import(value, index: int) -> str:
+    """
+    Pakai NIK dari dataset kalau valid 16 digit angka.
+    Kalau kosong/tidak valid, generate NIK dummy numeric 16 digit.
+    """
+
+    raw = str(value or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+
+    if len(digits) == 16:
+        return digits
+
+    return generate_nik_import_numeric(index)
 
 
 def build_keluarga_data(row: Dict[str, Any], import_batch_id: str, index: int):
+    kode_import = bikin_kode_keluarga_import(import_batch_id, index)
+
+    nik = normalize_nik_import(
+        row.get("nik")
+        or row.get("NIK")
+        or row.get("no_nik")
+        or row.get("nomor_nik")
+        or row.get("NO_NIK"),
+        index,
+    )
+
+    nama_kepala_keluarga = (
+        clean_text(row.get("nama_kepala_keluarga"))
+        or clean_text(row.get("Nama Kepala Keluarga"))
+        or clean_text(row.get("nama"))
+        or clean_text(row.get("NAMA"))
+        or f"Keluarga Import {index:03d}"
+    )
+
+    kelurahan = clean_text(row.get("kelurahan"))
+    dusun = clean_text(row.get("dusun"))
+    nama_sls = clean_text(row.get("nama_sls"))
+
+    alamat_parts = [part for part in [nama_sls, dusun, kelurahan] if part]
+    alamat = ", ".join(alamat_parts) if alamat_parts else None
+
+    return {
+        "kode_keluarga_import": kode_import,
+        "nama_kepala_keluarga": nama_kepala_keluarga,
+        "nik": nik,
+        "alamat": alamat,
+        "kelurahan": kelurahan,
+        "dusun": dusun,
+        "jumlah_anggota": to_int(row.get("jml_anggota_keluarga")),
+        "sumber_data": "import",
+        "import_batch_id": import_batch_id,
+    }
     kode_import = bikin_kode_keluarga_import(import_batch_id, index)
 
     kelurahan = clean_text(row.get("kelurahan"))
