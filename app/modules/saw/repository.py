@@ -597,7 +597,7 @@ def hitung_saw_dari_database(data: Dict[str, Any]):
     if not rows:
         raise ValueError(
             "Belum ada data penilaian untuk keluarga terverifikasi. "
-            "Pastikan data warga sudah terverifikasi dan penilaian C1-C6 sudah tersimpan."
+            "Pastikan data warga sudah terverifikasi dan penilaian C1-C10 sudah tersimpan."
         )
 
     keluarga_lengkap, keluarga_tidak_lengkap = bentuk_matrix_penilaian(rows, kriteria)

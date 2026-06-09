@@ -54,7 +54,7 @@ def gas_auto_generate_penilaian_dari_import(import_batch_id: str | None):
     Compatibility endpoint.
 
     Sekarang flow utama:
-    Import Dataset -> Proses Dataset -> otomatis isi penilaian C1-C6.
+    Import Dataset -> Proses Dataset -> otomatis isi penilaian C1-C10.
     Jadi endpoint ini tidak wajib dipakai lagi.
     """
     return {
@@ -63,7 +63,7 @@ def gas_auto_generate_penilaian_dari_import(import_batch_id: str | None):
         "total_berhasil": 0,
         "total_gagal": 0,
         "errors": [
-            "Gunakan menu Import Dataset -> Proses Dataset untuk otomatis membuat Data Warga + Penilaian C1-C6."
+            "Gunakan menu Import Dataset -> Proses Dataset untuk otomatis membuat Data Warga + Penilaian C1-C10."
         ],
     }
 
