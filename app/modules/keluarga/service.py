@@ -6,7 +6,7 @@ from app.modules.keluarga.schemas import (
     KeluargaUpdateRequest,
     KeluargaVerifikasiRequest,
 )
-
+from app.modules.user_account.service import ensure_user_account_for_verified_keluarga
 
 VALID_STATUS = {"pending", "terverifikasi", "ditolak", "perlu_perbaikan"}
 
@@ -35,7 +35,6 @@ def gas_ambil_keluarga_detail(keluarga_id: str):
         )
 
     keluarga["penilaian"] = repository.ambil_penilaian_by_keluarga(keluarga_id)
-
     return keluarga
 
 
@@ -44,7 +43,6 @@ def gas_tambah_keluarga(payload: KeluargaCreateRequest):
         keluarga = repository.tambah_keluarga(payload.model_dump(exclude={"penilaian"}))
 
         penilaian_payload = payload.penilaian or []
-
         penilaian = repository.simpan_banyak_penilaian_manual(
             keluarga_id=keluarga["id"],
             penilaian=[item.model_dump() for item in penilaian_payload],
@@ -81,16 +79,21 @@ def gas_update_keluarga(keluarga_id: str, payload: KeluargaUpdateRequest):
         keluarga = repository.update_keluarga(keluarga_id, data_update)
 
         penilaian_payload = payload.penilaian or []
-
         penilaian = repository.simpan_banyak_penilaian_manual(
             keluarga_id=keluarga_id,
             penilaian=[item.model_dump() for item in penilaian_payload],
         )
 
+        akun_user = None
+        if data_update.get("status_verifikasi") == "terverifikasi":
+            akun_user = ensure_user_account_for_verified_keluarga(keluarga_id)
+            keluarga = repository.ambil_keluarga_by_id(keluarga_id)
+
         return {
             "message": "Data keluarga berhasil diperbarui.",
             "data": keluarga,
             "penilaian": penilaian,
+            "akun_user": akun_user,
         }
 
     except Exception as error:
@@ -111,7 +114,6 @@ def gas_hapus_keluarga(keluarga_id: str):
 
     try:
         keluarga = repository.hapus_keluarga(keluarga_id)
-
         return {
             "message": "Data keluarga berhasil dihapus.",
             "data": keluarga,
@@ -146,9 +148,16 @@ def gas_verifikasi_keluarga(keluarga_id: str, payload: KeluargaVerifikasiRequest
             catatan_admin=payload.catatan_admin,
         )
 
+        akun_user = None
+
+        if payload.status_verifikasi == "terverifikasi":
+            akun_user = ensure_user_account_for_verified_keluarga(keluarga_id)
+            keluarga = repository.ambil_keluarga_by_id(keluarga_id)
+
         return {
             "message": "Status keluarga berhasil diperbarui.",
             "data": keluarga,
+            "akun_user": akun_user,
         }
 
     except Exception as error:
